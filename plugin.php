@@ -1,5 +1,9 @@
 <?php
 
+defined('PASSWORDS_USER') || define('PASSWORDS_USER', 'username');
+defined('PASSWORDS_PASS') || define('PASSWORDS_PASS', 'password');
+
+
 /* "The question is: Who... are you?" */
 function plugin_passwords_info() {
   return array(
@@ -41,7 +45,7 @@ function plugin_passwords_uninstall() {
 function plugin_passwords_upgrade() {
   $db_info = getPlugin('passwords');
   $v1 = $db_info['db_version'];
-  $code_info = plugin_plugin_info();
+  $code_info = plugin_passwords_info();
   $v2 = $code_info['version'];
 
   if ($v1 == $v2)
@@ -120,8 +124,8 @@ function plugin_passwords_upgrade() {
 
     foreach ($array as $key => $item) {
       $qparams = [
-        pencrypt($item['username'], 'username' . $item['entry_id']),
-        pencrypt($item['password'], 'password' . $item['entry_id']),
+        pencrypt($item['username'], PASSWORDS_USER . $item['entry_id']),
+        pencrypt($item['password'], PASSWORDS_PASS . $item['entry_id']),
         $item['id']
       ];
 
@@ -146,13 +150,10 @@ function plugin_passwords_init() {
 
   //$tabhandler['object']['password'] = 'showpassword'; // register a report rendering function
   $tab['object']['passwords'] = 'Passwords'; // title of the report tab
-  registerTabHandler('object', 'passwords', 'showpassword');
+  registerTabHandler('object', 'passwords', 'plugin_passwords_handler');
 }
-#$tabhandler['object']['password'] = 'showpassword'; // register a report rendering function
-#$tab['object']['password'] = 'Passwords'; // title of the report tab
 
-
-function showpassword() {
+function plugin_passwords_handler() {
   global $remote_username;
 
   $object_id = intval($_REQUEST['object_id'] ?? 0);
@@ -202,9 +203,9 @@ function showpassword() {
     $qparms['label'] = $_REQUEST['label'];
     $qparms['protocol'] = $_REQUEST['protocol'];
     $qparms['entry_id'] = $_REQUEST['object_id'];
-    $qparms['username'] = pencrypt($_REQUEST['username'], 'username' . $object_id);
+    $qparms['username'] = pencrypt($_REQUEST['username'], PASSWORDS_USER . $object_id);
     if (!empty($_REQUEST['password'])) {
-      $qparms['secret'] = pencrypt($_REQUEST['password'], 'password' . $object_id);
+      $qparms['secret'] = pencrypt($_REQUEST['password'], PASSWORDS_PASS . $object_id);
     }
     $qparms['comment'] = $_REQUEST['comment'];
 
@@ -222,8 +223,8 @@ function showpassword() {
     $qparms = [
       $_REQUEST['label'],
       $_REQUEST['protocol'],
-      pencrypt($_REQUEST['username'], 'username' . $object_id),
-      pencrypt($_REQUEST['password'], 'password' . $object_id),
+      pencrypt($_REQUEST['username'], PASSWORDS_USER . $object_id),
+      pencrypt($_REQUEST['password'], PASSWORDS_PASS . $object_id),
       $_REQUEST['object_id'],
       date("Y-m-d H:i:s"),
       $remote_username,
@@ -261,8 +262,10 @@ function showpassword() {
     SELECT
       k.id as Pid,
       k.entry_id,
+      k.label,
       k.username,
       k.password,
+      k.secret,
       k.comment,
       k.protocol,
       o.id
@@ -279,6 +282,32 @@ function showpassword() {
   //$ret = array();
   $result = usePreparedSelectBlade($query, $qparams);
   $array = $result->fetchAll(PDO::FETCH_ASSOC);
+
+  $sorted = [];
+  foreach ($array as $key => $item) {
+    error_log('item ' . $key . ' = ' . json_encode($item));
+    if (empty($item['secret'])) {
+      $item['class'] = "password_show";
+    } else {
+      $username = pdecrypt($item['username'], PASSWORDS_USER . $item['entry_id']);
+      //  For now, lets show the encrypted version to how we have failed to decrypt it
+      if (!empty($username)) {
+        $item['username'] = $username;
+      }
+
+      $item['password'] = '';
+      $item['class'] = "password_secret";
+    }
+
+    $key = zKey($item['label'], $item['username'], $item['comment']);
+    $sorted[strtolower($key)] = $item;
+  }
+
+  ksort($sorted);
+
+addJS('https://code.jquery.com/jquery-3.3.1.min.js');
+addJS('https://code.jquery.com/ui/1.12.1/jquery-ui.min.js');
+addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
 
 ?>
   <br>
@@ -310,43 +339,29 @@ function showpassword() {
       <td height="20"></td>
     </tr>
     <?php
-    foreach ($array as $key => $item) {
-      if (empty($item['secret'])) {
-        $username = $item['username'];
-        $password = $item['password'];
-        $class = "password_show";
-      } else {
-        $username = pdecrypt($item['username'], 'userame' . $item['object_id']);
-
-        //  For now, lets show the encrypted version to how we have failed to decrypt it
-        if (empty($username)) {
-          $username = $item['username'];
-        }
-
-        $password = '';
-        $class = "password_secret";
-      }
+    foreach ($sorted as $key => $item) {
+	error_log('item ' . $key . ' = ' . json_encode($item));
     ?>
-      <form method="post" name="pass-<?= $array[$key]['Pid'] ?>" autocomplete=off action="">
+      <form method="post" name="pass-<?= $item['Pid'] ?>" id="pass-<?= $item['Pid'] ?>" autocomplete=off action="" data-object-id="<?= $item['entry_id']?>" data-label-id="<?= $item['Pid']?>">
         <!-- ok its a dirty work around, but at least it will prevent the passwords from deleting when hitting enter -->
-        <INPUT type="image" name="updpass" value="updpass" style="position: absolute; left: -9999px; width: 1px; height: 1px;" />
+        <INPUT form="pass-<?= $item['Pid'] ?>" type="image" name="updpass" value="updpass" style="position: absolute; left: -9999px; width: 1px; height: 1px;" />
         <!-- and here another dirty work around, but this time from Chrome. -->
         <!-- it seems that chrome ignores autocomplete, yes...it ignores it, as workaround i have created an fake text & password field -->
         <!-- don't we just love standards....oh wait... -->
-        <input type="text" name="prevent_autofill" id="prevent_autofill" value="" style="display:none;" />
-        <input type="password" name="password_fake" id="password_fake" value="" style="display:none;" />
+        <input form="pass-<?= $item['Pid'] ?>" type="text" name="prevent_autofill" id="prevent_autofill_<?= $item['Pid'] ?>" value="" style="display:none;" />
+        <input form="pass-<?= $item['Pid'] ?>" type="password" name="password_fake" id="password_fake_<?= $item['Pid'] ?>" value="" style="display:none;" />
         <!-- end of dirty work around. -->
         <tr>
-          <td><INPUT type="image" name="delpass" value="" src="pix/tango-list-remove.png"></td>
-          <td><input type="text" name="label" value="<?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8'); ?>"></td>
-          <td><input type="text" name="username" value="<?= htmlspecialchars($username, ENT_QUOTES, 'UTF-8'); ?>"></td>
-          <td><input type="password" name="password" value="<?= htmlspecialchars($password, ENT_QUOTES, 'UTF-8'); ?>" <?= $class ?>></td>
-          <td><INPUT type="image" name="copypass" value="" src="pix/tango-edit-copy-16x16.png"></td>
-          <td><input type="text" name="protocol" value="<?= htmlspecialchars($item['protocol'], ENT_QUOTES, 'UTF-8'); ?>"></td>
-          <td><input type="text" name="comment" value="<?= htmlspecialchars($item['comment'], ENT_QUOTES, 'UTF-8'); ?>"></td>
-          <td><INPUT type="image" name="updpass" value="" src="pix/tango-document-save-16x16.png"></td>
+          <td><INPUT form="pass-<?= $item['Pid'] ?>" type="image" name="delpass" value="" src="pix/tango-list-remove.png"></td>
+          <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="label" value="<?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8'); ?>"></td>
+          <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="username" value="<?= htmlspecialchars($item['username'], ENT_QUOTES, 'UTF-8'); ?>"></td>
+          <td><input form="pass-<?= $item['Pid'] ?>" type="password" name="password" value="<?= htmlspecialchars($item['password'], ENT_QUOTES, 'UTF-8'); ?>" class="<?= $item['class'] ?>"></td>
+          <td><INPUT form="pass-<?= $item['Pid'] ?>" type="image" name="copypass" value="" class="copypass" src="pix/tango-edit-copy-16x16.png"></td>
+          <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="protocol" value="<?= htmlspecialchars($item['protocol'], ENT_QUOTES, 'UTF-8'); ?>"></td>
+          <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="comment" value="<?= htmlspecialchars($item['comment'], ENT_QUOTES, 'UTF-8'); ?>"></td>
+          <td><INPUT form="pass-<?= $item['Pid'] ?>" type="image" name="updpass" value="" src="pix/tango-document-save-16x16.png"></td>
         </tr>
-        <input type="hidden" name="labelid" value='<?= $item['Pid'] ?>'>
+        <input form="pass-<?= $item['Pid'] ?>" type="hidden" name="labelid" value='<?= $item['Pid'] ?>'>
       </form>
     <?php
     }
@@ -360,78 +375,125 @@ function showpassword() {
       $(this).attr('type', 'text');
     });
 
-    $(".password_show").on('click', function(e) {
+    $(".password_show").on('blur', function(e) {
       e.preventDefault();
       e.stopPropagation();
 
       $(this).attr('type', 'password');
     });
 
-    $('#copypass').on('click', function(e) {
+    $('.copypass').on('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
 
+      var passwordForm = $(this.form)[0];
+      var passwordFieldName = 'input[name=password][form=' + passwordForm.name + ']';
+      var passwordField = $(passwordFieldName);
       var passwordValue = "";
-      var passwordField = $(this).closest("#password");
 
       if (passwordField.length) {
-        copyToClipboard(passwordField.value());
-      } else {
+        passwordValue = passwordField[0].value;
+      }
+
+      if (!passwordValue.length) {
+        var object_id = passwordForm.data('object_id');
+        var label_id = passwordForm.data('label_id');
+
+        debugger;
         $.ajax({
           url: window.location.pathname + '?page=object&tab=passwords&object_id=' + object_id + "&labelid=" + label_id + "&showpass_x=1",
           type: "get",
         }).done(function(result) {
           if (result.success) {
-            copyToClipboard(result.password);
+            copyPasswordToClipboard(result.password);
           }
         }).fail(function() {
           alert("Failed to retrieve password");
         }).always(function() {
           ajaxUIUnlock();
         });
+      } else {
+        copyPasswordToClipboard(passwordValue);
       }
     });
 
+    var alertPasswordTimeout = null;
+    var clearPasswordTimeout = null;
     function copyPasswordToClipboard(passwordValue) {
       if (typeof passwordValue !== 'undefined' && passwordValue.length) {
+        if (alertPasswordTimeout != null) {
+          clearTimeout(alertPasswordTimeout);
+        }
+
+        if (clearPasswordTimeout != null) {
+          clearTimeout(clearPasswordTimeout);
+        }
+
+        alertPasswordTimeout = setTimeout(alertPassword, 300);
+
         navigator.clipboard.writeText(passwordValue);
-        alert("Password copied");
       }
+    }
+
+    function alertPassword() {
+      if (alertPasswordTimeout != null) {
+        clearTimeout(alertPasswordTimeout);
+      }
+
+      alert("Password copied, click OK to clear and continue...");
+
+      clearPasswordTimeout = setTimeout(clearPassword, 1000);
+    }
+
+    function clearPassword() {
+      navigator.clipboard.writeText("");
     }
   </script>
 <?php
 }
 
-function pencrypt($message, $key, $cipher = "AES-128-CBC", $as_binary = true, $options = OPENSSL_RAW_DATA) {
+function pencrypt($message, $key = null, $cipher = "AES-128-CBC", $as_binary = true, $options = OPENSSL_RAW_DATA) {
   // Generate a random encryption key
-  $key = openssl_random_pseudo_bytes(16);
+  $key ??= openssl_random_pseudo_bytes(16);
   if ($key === false) {
+    recordPasswordsDebug('pencrypt(): failed openssl_random_pseudo_bytes (key)');
     return null;
   }
 
   // Encrypt the message using AES-128-CBC encryption
   $ivlen = openssl_cipher_iv_length($cipher);
   if ($ivlen === false) {
+    recordPasswordsDebug('pencrypt(): failed openssl_cipher_iv_length');
     return null;
   }
 
   $iv = openssl_random_pseudo_bytes($ivlen);
   if ($iv === false) {
+    recordPasswordsDebug('pencrypt(): failed openssl_random_pseudo_bytes (iv)');
     return null;
   }
 
+  recordPasswordsDebug('pencrypt() key = [' . $key . ']');
   $ciphertext_raw = openssl_encrypt($message, $cipher, $key, $options, $iv);
   if ($ciphertext_raw === false) {
+    recordPasswordsDebug('pencrypt(): failed openssl_encrypt');
     return null;
   }
 
   $hmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary);
   if ($hmac === false) {
+    recordPasswordsDebug('pencrypt(): failed hash_hmac');
     return null;
   }
 
+  recordPasswordsBytes('pencrypt() iv', $iv);
+  recordPasswordsBytes('pencrypt() hmac', $hmac);
+  recordPasswordsBytes('pencrypt() ciphertext_raw', $ciphertext_raw);
+
   $ciphertext = base64_encode($iv . $hmac . $ciphertext_raw);
+  recordPasswordsDebug('pencrypt() ciphertext_b64 = [' . $ciphertext . ']');
   if ($ciphertext === false) {
+    recordPasswordsDebug('pencrypt(): failed base64_encode was false');
     return null;
   } else {
     return $ciphertext;
@@ -441,40 +503,55 @@ function pencrypt($message, $key, $cipher = "AES-128-CBC", $as_binary = true, $o
 function pdecrypt($ciphertext, $key, $cipher = "AES-128-CBC", $as_binary = true, $options = OPENSSL_RAW_DATA) {
   $c = base64_decode($ciphertext);
   if ($c === false) {
+    recordPasswordsDebug('pdecrypt(): failed base64_decode');
     return null;
   }
 
   $ivlen = openssl_cipher_iv_length($cipher);
   if ($ivlen === false) {
+    recordPasswordsDebug('pdecrypt(): failed openssl_cipher_iv_length');
     return null;
   }
 
   $iv = substr($c, 0, $ivlen);
   if ($iv === false) {
+    recordPasswordsDebug('pdecrypt(): failed substr#1');
     return null;
   }
 
   $hmac = substr($c, $ivlen, $sha2len = 32);
   if ($hmac === false) {
+    recordPasswordsDebug('pdecrypt(): failed substr#2');
     return null;
   }
 
   $ciphertext_raw = substr($c, $ivlen + $sha2len);
   if ($ciphertext_raw === false) {
+    recordPasswordsDebug('pdecrypt(): failed substr#3');
     return null;
   }
 
+  recordPasswordsDebug('pdecrypt() key = [' . $key . ']');
+  recordPasswordsBytes('pdecrypt() iv', $iv);
+  recordPasswordsBytes('pdecrypt() hmac', $hmac);
+  recordPasswordsBytes('pdecrypt() ciphertext_raw', $ciphertext_raw);
+  recordPasswordsDebug('pdecrypt() ciphertext_b64 = [' . $key . ']');
+
   $original_plaintext = openssl_decrypt($ciphertext_raw, $cipher, $key, $options, $iv);
+  recordPasswordsDebug('pdecrypt(): key = [' . $key . ']');
   if ($original_plaintext === false) {
+    recordPasswordsDebug('pdecrypt(): failed openssl_decrypt');
     return null;
   }
 
   $calcmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary);
   if ($calcmac === false) {
+    recordPasswordsDebug('pdecrypt(): failed hash_hmac');
     return null;
   } elseif (hash_equals($hmac, $calcmac)) {
     return $original_plaintext;
   } else {
+    recordPasswordsDebug('pdecrypt(): failed hash_equals');
     return null;
   }
 }
@@ -485,8 +562,26 @@ function isPasswordsDebugUser() {
   return $remote_username == 'admin';
 }
 
+function recordPasswordsBytes($prefix, $value) {
+  $byte_string = '';
+  for ($i = 0; $i < strlen($value); $i++) {
+    $byte_string .= dechex(ord($value[$i])) . ' ';
+  }
+
+//  recordPasswordsDebug($prefix . ' = [' . rtrim($byte_string) . ']');
+}
+
 function recordPasswordsDebug($message) {
   if (isPasswordsDebugUser()) {
-    error_log("PASSWRODS: " . $message);
+    error_log("PASSWORDS: " . $message);
   }
+}
+
+function zKey(...$keys) {
+  $output = '';
+  foreach ($keys as $key) {
+    $output .= (empty($output) ? '' : '__') .  (empty($key) ? '||' : $key);
+  }
+
+  return $output;
 }
