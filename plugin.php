@@ -323,6 +323,7 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
   <div id="passwords_dialog"></div>
   <br>
   <table border="0" cellpadding="0" cellspacing="10" align="center">
+<?php if (getConfigVar ('ADDNEW_AT_TOP') == 'yes') { ?>
     <tr>
       <td>&nbsp;</td>
       <td>Label</td>
@@ -332,7 +333,8 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       <td>Protocol</td>
       <td>Comment</td>
       <td>&nbsp;</td>
-      <form method="post" name="pass-add" autocomplete=off action="" style="display: inline;">
+    </tr>
+    <form method="post" name="pass-add" autocomplete=off action="" style="display: inline;">
     <tr>
       <td><INPUT type="image" name="addpass" value="" src="pix/tango-list-add.png"></td>
       <td><input type="text" name="label" value=""></td>
@@ -349,6 +351,8 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       <td height="20"></td>
     </tr>
     <?php
+}
+
     foreach ($sorted as $key => $item) {
 	error_log('item ' . $key . ' = ' . json_encode($item));
     ?>
