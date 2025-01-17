@@ -252,7 +252,7 @@ function plugin_passwords_handler() {
            added,
            user_name,
            comment)
-       VALUES(?,?,?,?,?,?,?,?)", $qparms);
+       VALUES(?,?,?,?,?,?,?,?,?)", $qparms);
   }
 
   if (isset($_POST['delpass_x'])) {
