@@ -245,7 +245,7 @@ function plugin_passwords_handler() {
            label,
            protocol,
            username,
-           password,
+           secret,
            entry_id,
            added,
            user_name,
