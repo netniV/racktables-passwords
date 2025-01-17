@@ -101,7 +101,6 @@ function plugin_passwords_upgrade() {
   }
 
   if ($refreshSecreets) {
-    $qparams = array($_REQUEST['object_id']);
     $query = "
       SELECT
         k.id,
@@ -109,14 +108,7 @@ function plugin_passwords_upgrade() {
         k.username,
         k.password
       FROM
-        tpa_passwords k
-      LEFT JOIN
-        Object o
-      ON
-        k.entry_id=o.id
-      WHERE
-        o.id = ?
-      AND k.hidden = 0;";
+        tpa_passwords k";
 
     //$ret = array();
     $result = usePreparedSelectBlade($query, $qparams);
@@ -134,7 +126,7 @@ function plugin_passwords_upgrade() {
         UPDATE tpa_passwords
             SET
               username = ?,
-              secret = ?,
+              secret = ?
             WHERE id = ? AND secret is NULL",
         $qparams
       );
@@ -145,24 +137,25 @@ function plugin_passwords_upgrade() {
 
 /* Register tab handlers and such */
 function plugin_passwords_init() {
+  global $ajaxhandler;
   global $tabhandler;
   global $tab;
 
   //$tabhandler['object']['password'] = 'showpassword'; // register a report rendering function
   $tab['object']['passwords'] = 'Passwords'; // title of the report tab
+  $ajaxhandler['get-password-secret'] = 'plugin_passwords_secret';
   registerTabHandler('object', 'passwords', 'plugin_passwords_handler');
 }
 
-function plugin_passwords_handler() {
-  global $remote_username;
+function plugin_passwords_secret() {
+  recordPasswordsDebug('showpass_x found');
 
-  $object_id = intval($_REQUEST['object_id'] ?? 0);
-  if ($object_id === 0) {
-    header('Location: ' . $_SERVER['HTTP_REFERER'] . '');
-    return;
-  }
-
-  if (isset($_POST['showpass_x'])) {
+  $crsf = $_REQUEST['crsf'] ?? '';
+  $crsf_id = pdecrypt($crsf, PASSWORDS_PASS . $_REQUEST['object_id']);
+  $crsf_iv = $_REQUEST['object_id'] . '-' . $_REQUEST['labelid'];
+  recordPasswordsDebug("CRSF: {$crsf}, CRSF_ID: {$crsf_id}, ENTRY_ID: {$crsf_iv}");
+  $output = json_encode(['success' => false, 'reason' => 'security failure'], JSON_PRETTY_PRINT);
+  if ($crsf_id == $crsf_iv) {
     $qparams = array($_REQUEST['object_id'], $_REQUEST['labelid']);
     $query = "
       SELECT
@@ -170,6 +163,7 @@ function plugin_passwords_handler() {
         k.entry_id,
         k.username,
         k.password,
+        k.secret,
         k.comment,
         k.protocol,
         o.id
@@ -186,13 +180,27 @@ function plugin_passwords_handler() {
 
     //$ret = array();
     $result = usePreparedSelectBlade($query, $qparams);
-    $array = $result->fetchAll(PDO::FETCH_ASSOC);
+    $items = $result->fetchAll(PDO::FETCH_ASSOC);
     $ret = [];
-    foreach ($array as $item) {
-      $ret = pdecrypt($item['secret'], 'password' . $item['object_id']);
+    foreach ($items as $item) {
+      $ret = pdecrypt($item['secret'], PASSWORDS_PASS . $item['entry_id']);
+      if ($ret !== null && $ret !== false) {
+        $output = json_encode(['success' => true, 'password' => $ret], JSON_PRETTY_PRINT);
+        break;
+      }
     }
+  }
 
-    echo json_encode($ret, JSON_PRETTY_PRINT);
+  echo $output;
+  return;
+}
+
+function plugin_passwords_handler() {
+  global $remote_username;
+
+  $object_id = intval($_REQUEST['object_id'] ?? 0);
+  if ($object_id === 0) {
+    header('Location: ' . $_SERVER['HTTP_REFERER'] . '');
     return;
   }
 
@@ -297,6 +305,7 @@ function plugin_passwords_handler() {
 
       $item['password'] = '';
       $item['class'] = "password_secret";
+      $item['crsf'] = pencrypt($item['entry_id'].'-'.$item['Pid'], PASSWORDS_PASS. $item['entry_id']);
     }
 
     $key = zKey($item['label'], $item['username'], $item['comment']);
@@ -311,6 +320,7 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
 
 ?>
   <br>
+  <div id="passwords_dialog"></div>
   <br>
   <table border="0" cellpadding="0" cellspacing="10" align="center">
     <tr>
@@ -342,7 +352,7 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
     foreach ($sorted as $key => $item) {
 	error_log('item ' . $key . ' = ' . json_encode($item));
     ?>
-      <form method="post" name="pass-<?= $item['Pid'] ?>" id="pass-<?= $item['Pid'] ?>" autocomplete=off action="" data-object-id="<?= $item['entry_id']?>" data-label-id="<?= $item['Pid']?>">
+      <form method="post" name="pass-<?= $item['Pid'] ?>" id="pass-<?= $item['Pid'] ?>" autocomplete=off action="" data-object-id="<?= $item['entry_id']?>" data-label-id="<?= $item['Pid']?>" data-crsf="<?=$item['crsf']?>">
         <!-- ok its a dirty work around, but at least it will prevent the passwords from deleting when hitting enter -->
         <INPUT form="pass-<?= $item['Pid'] ?>" type="image" name="updpass" value="updpass" style="position: absolute; left: -9999px; width: 1px; height: 1px;" />
         <!-- and here another dirty work around, but this time from Chrome. -->
@@ -390,27 +400,120 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       var passwordFieldName = 'input[name=password][form=' + passwordForm.name + ']';
       var passwordField = $(passwordFieldName);
       var passwordValue = "";
+      var passwordItem = null;
 
       if (passwordField.length) {
         passwordValue = passwordField[0].value;
       }
 
       if (!passwordValue.length) {
-        var object_id = passwordForm.data('object_id');
-        var label_id = passwordForm.data('label_id');
+        var object_id = $(passwordForm).data('objectId');
+        var label_id = $(passwordForm).data('labelId');
+        var crsf = $(passwordForm).data('crsf');
 
-        debugger;
-        $.ajax({
-          url: window.location.pathname + '?page=object&tab=passwords&object_id=' + object_id + "&labelid=" + label_id + "&showpass_x=1",
-          type: "get",
-        }).done(function(result) {
+        passwordItem = new ClipboardItem({
+          'text/plain': new Promise(async (resolve) => {
+            var result = await $.getJSON(
+              window.location.pathname,
+              {
+                module: 'ajax',
+                ac: 'get-password-secret',
+                page: 'object',
+                tab: 'passwords',
+                object_id: object_id,
+                labelid: label_id,
+                crsf: crsf
+              }
+            );
+
+            if (result.success) {
+              resolve(new Blob([result.password], { type: 'text/plain' }));
+            }
+          }),
+        });
+      } else {
+        passwordItem = new ClipboardItem({"text/plain": passwordValue});
+      }
+
+      navigator.clipboard.write([passwordItem]);
+
+      var password_overlay = 'position:absolute;' +
+        'top:0%;' +
+        'left:50%;' +
+        'background-color:beige;' +
+        'color: black;' +
+        'z-index:1002;' +
+        'overflow:auto;' +
+        'width: 10uw;' +
+        'font-size: 1.5em;' +
+        'border: 1px solid black;' +
+        'text-align:center;' +
+        'margin: auto 0;';
+
+      var password_div = $('#password_count');
+      var password_count = 10;
+      if (password_div.length == 0) {
+        $('body').append('<div id="password_count" style="' + password_overlay + '"><div id="password_time"></div></div>');
+      }
+
+      $('#password_count').show();
+      var password_timer = setInterval(function () {
+        $("#password_time").html("Clearing password in " + password_count + " second(s)");
+        password_count = (password_count - 1);
+
+        if (password_count < 0)
+        {
+            clearInterval(password_timer);
+            $("#password_count").hide();
+        }
+      }, 1000);
+
+      navigator.clipboard.write([
+        new ClipboardItem({
+          'text/plain': new Promise(async (resolve) => {
+            await new Promise(r => setTimeout(r, 10000));
+            resolve(new Blob([''], { type: 'text/plain' }));
+          })
+        })
+      ]);
+    });
+
+    $('.copypassold').on('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      var passwordForm = $(this.form)[0];
+      var passwordFieldName = 'input[name=password][form=' + passwordForm.name + ']';
+      var passwordField = $(passwordFieldName);
+      var passwordValue = "";
+
+      if (passwordField.length) {
+        passwordValue = passwordField[0].value;
+      }
+
+      if (!passwordValue.length) {
+        var object_id = $(passwordForm).data('objectId');
+        var label_id = $(passwordForm).data('labelId');
+
+        $.getJSON(
+          window.location.pathname,
+          {
+            module: 'ajax',
+            ac: 'get-password-secret',
+            page: 'object',
+            tab: 'passwords',
+            object_id: object_id,
+            labelid: label_id
+          }
+        ).done(function(result) {
+          debugger;
           if (result.success) {
             copyPasswordToClipboard(result.password);
           }
         }).fail(function() {
           alert("Failed to retrieve password");
         }).always(function() {
-          ajaxUIUnlock();
+          //ajaxUIUnlock();
         });
       } else {
         copyPasswordToClipboard(passwordValue);
@@ -429,9 +532,12 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
           clearTimeout(clearPasswordTimeout);
         }
 
-        alertPasswordTimeout = setTimeout(alertPassword, 300);
-
-        navigator.clipboard.writeText(passwordValue);
+        try {
+          navigator.clipboard.writeText(passwordValue);
+          alertPasswordTimeout = setTimeout(alertPassword, 300);
+        } catch (ex) {
+          ;
+        }
       }
     }
 
@@ -446,7 +552,11 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
     }
 
     function clearPassword() {
-      navigator.clipboard.writeText("");
+      try {
+        navigator.clipboard.writeText("");
+      } catch (ex) {
+        ;
+      }
     }
   </script>
 <?php
