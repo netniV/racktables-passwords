@@ -398,6 +398,24 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       $(this).attr('type', 'password');
     });
 
+    async function getPasswordSecret(object_id, label_id, crsf) {
+      return $.getJSON(
+        window.location.pathname,
+        {
+          module: 'ajax',
+          ac: 'get-password-secret',
+          page: 'object',
+          tab: 'passwords',
+          object_id: object_id,
+          labelid: label_id,
+          crsf: crsf
+        }
+      );
+    }
+
+    var password_count = 0;
+    var password_timer = null;
+    
     $('.copypass').on('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -407,41 +425,37 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       var passwordField = $(passwordFieldName);
       var passwordValue = "";
       var passwordItem = null;
+      var useClipboardItem = typeof ClipboardItem && navigator.clipboard.write
 
       if (passwordField.length) {
         passwordValue = passwordField[0].value;
       }
 
-      if (!passwordValue.length) {
-        var object_id = $(passwordForm).data('objectId');
-        var label_id = $(passwordForm).data('labelId');
-        var crsf = $(passwordForm).data('crsf');
+      var object_id = $(passwordForm).data('objectId');
+      var label_id = $(passwordForm).data('labelId');
+      var crsf = $(passwordForm).data('crsf');
 
-        passwordItem = new ClipboardItem({
-          'text/plain': new Promise(async (resolve) => {
-            var result = await $.getJSON(
-              window.location.pathname,
-              {
-                module: 'ajax',
-                ac: 'get-password-secret',
-                page: 'object',
-                tab: 'passwords',
-                object_id: object_id,
-                labelid: label_id,
-                crsf: crsf
-              }
-            );
+      if (useClipboardItem) {
+        if (!passwordValue.length) {
+          getPasswordSecret(object_id, label_id, crsf)
+            .then((result) => {
+              const type = "text/plain";
+              const blob = new Blob([result.success?result.password:''], { type });
+              const data = [new ClipboardItem({ [type]: blob })];
 
-            if (result.success) {
-              resolve(new Blob([result.password], { type: 'text/plain' }));
-            }
-          }),
-        });
+              navigator.clipboard.write( data );
+            });
+        } else {
+          navigator.clipboard.write([ new ClipboardItem({"text/plain": passwordValue}) ]);
+        }
       } else {
-        passwordItem = new ClipboardItem({"text/plain": passwordValue});
+        if (!passwordValue.length) {
+          getPasswordSecret(object_id, label_id, crsf)
+            .then((result) => { navigator.clipboard.writeText(result) });
+        } else {
+          navigator.clipboard.writeText(passwordValue);
+        }
       }
-
-      navigator.clipboard.write([passwordItem]);
 
       var password_overlay = 'position:absolute;' +
         'top:0%;' +
@@ -456,32 +470,42 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
         'text-align:center;' +
         'margin: auto 0;';
 
+      if (password_timer) {
+        password_count = 0;
+        updatePasswordCountdown();
+      }
+
       var password_div = $('#password_count');
-      var password_count = 10;
+      password_count = 10;
       if (password_div.length == 0) {
         $('body').append('<div id="password_count" style="' + password_overlay + '"><div id="password_time"></div></div>');
       }
 
       $('#password_count').show();
-      var password_timer = setInterval(function () {
-        $("#password_time").html("Clearing password in " + password_count + " second(s)");
-        password_count = (password_count - 1);
+      updatePasswordCountdown();
+      password_timer = setInterval(updatePasswordCountdown, 1000);
 
-        if (password_count < 0)
-        {
-            clearInterval(password_timer);
-            $("#password_count").hide();
-        }
-      }, 1000);
+      if (useClipboardItem) {
+        var passwordProm = new Promise(async (resolve) => {
+          await new Promise(r => setTimeout(r, 10000));
+          resolve({ 'text/plain': '' });
+        });
 
-      navigator.clipboard.write([
-        new ClipboardItem({
-          'text/plain': new Promise(async (resolve) => {
-            await new Promise(r => setTimeout(r, 10000));
-            resolve(new Blob([''], { type: 'text/plain' }));
-          })
-        })
-      ]);
+        passwordProm.then((result) => {
+          const type = "text/plain";
+          const blob = new Blob([''], { type });
+          const data = [new ClipboardItem({ [type]: blob })];
+
+          navigator.clipboard.write( data );
+        });
+      } else {
+        var passwordProm = new Promise(async (resolve) => {
+          await new Promise(r => setTimeout(r, 10000));
+          resolve( '' );
+        });
+
+        passwordProm.then((result) => navigator.clipboard.writeText(result));
+      }
     });
 
     $('.copypassold').on('click', function(e) {
@@ -528,6 +552,18 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
 
     var alertPasswordTimeout = null;
     var clearPasswordTimeout = null;
+
+    function updatePasswordCountdown() {
+      $("#password_time").html("Clearing password in " + password_count + " second(s)");
+      password_count = (password_count - 1);
+
+      if (password_count < 0)
+      {
+        clearInterval(password_timer);
+        $("#password_count").hide();
+      }
+    }
+
     function copyPasswordToClipboard(passwordValue) {
       if (typeof passwordValue !== 'undefined' && passwordValue.length) {
         if (alertPasswordTimeout != null) {
