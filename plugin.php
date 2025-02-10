@@ -306,6 +306,7 @@ function plugin_passwords_handler() {
       }
 
       $item['password'] = '';
+      $item['placeholder'] = '&lt;set&gt;';
       $item['class'] = "password_secret";
       $item['crsf'] = pencrypt($item['entry_id'].'-'.$item['Pid'], PASSWORDS_PASS. $item['entry_id']);
     }
@@ -371,7 +372,7 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
           <td><INPUT form="pass-<?= $item['Pid'] ?>" type="image" name="delpass" value="" src="pix/tango-list-remove.png"></td>
           <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="label" value="<?= htmlspecialchars($item['label'], ENT_QUOTES, 'UTF-8'); ?>"></td>
           <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="username" value="<?= htmlspecialchars($item['username'], ENT_QUOTES, 'UTF-8'); ?>"></td>
-          <td><input form="pass-<?= $item['Pid'] ?>" type="password" name="password" value="<?= htmlspecialchars($item['password'], ENT_QUOTES, 'UTF-8'); ?>" class="<?= $item['class'] ?>"></td>
+          <td><input form="pass-<?= $item['Pid'] ?>" type="password" name="password" value="<?= htmlspecialchars($item['password'], ENT_QUOTES, 'UTF-8'); ?>" class="<?= $item['class'] ?>" placeholder="<?= $item['placeholder'] ?? '' ?>"></td>
           <td><INPUT form="pass-<?= $item['Pid'] ?>" type="image" name="copypass" value="" class="copypass" src="pix/tango-edit-copy-16x16.png"></td>
           <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="protocol" value="<?= htmlspecialchars($item['protocol'], ENT_QUOTES, 'UTF-8'); ?>"></td>
           <td><input form="pass-<?= $item['Pid'] ?>" type="text" name="comment" value="<?= htmlspecialchars($item['comment'], ENT_QUOTES, 'UTF-8'); ?>"></td>
@@ -413,9 +414,10 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       );
     }
 
+    const password_secs = 20;
     var password_count = 0;
     var password_timer = null;
-    
+
     $('.copypass').on('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -476,7 +478,7 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       }
 
       var password_div = $('#password_count');
-      password_count = 10;
+      password_count = password_secs;
       if (password_div.length == 0) {
         $('body').append('<div id="password_count" style="' + password_overlay + '"><div id="password_time"></div></div>');
       }
@@ -487,7 +489,7 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
 
       if (useClipboardItem) {
         var passwordProm = new Promise(async (resolve) => {
-          await new Promise(r => setTimeout(r, 10000));
+          await new Promise(r => setTimeout(r, password_secs * 1000));
           resolve({ 'text/plain': '' });
         });
 
@@ -500,58 +502,13 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
         });
       } else {
         var passwordProm = new Promise(async (resolve) => {
-          await new Promise(r => setTimeout(r, 10000));
+          await new Promise(r => setTimeout(r, password_secs * 1000));
           resolve( '' );
         });
 
         passwordProm.then((result) => navigator.clipboard.writeText(result));
       }
     });
-
-    $('.copypassold').on('click', function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-
-      var passwordForm = $(this.form)[0];
-      var passwordFieldName = 'input[name=password][form=' + passwordForm.name + ']';
-      var passwordField = $(passwordFieldName);
-      var passwordValue = "";
-
-      if (passwordField.length) {
-        passwordValue = passwordField[0].value;
-      }
-
-      if (!passwordValue.length) {
-        var object_id = $(passwordForm).data('objectId');
-        var label_id = $(passwordForm).data('labelId');
-
-        $.getJSON(
-          window.location.pathname,
-          {
-            module: 'ajax',
-            ac: 'get-password-secret',
-            page: 'object',
-            tab: 'passwords',
-            object_id: object_id,
-            labelid: label_id
-          }
-        ).done(function(result) {
-          debugger;
-          if (result.success) {
-            copyPasswordToClipboard(result.password);
-          }
-        }).fail(function() {
-          alert("Failed to retrieve password");
-        }).always(function() {
-          //ajaxUIUnlock();
-        });
-      } else {
-        copyPasswordToClipboard(passwordValue);
-      }
-    });
-
-    var alertPasswordTimeout = null;
-    var clearPasswordTimeout = null;
 
     function updatePasswordCountdown() {
       $("#password_time").html("Clearing password in " + password_count + " second(s)");
@@ -564,42 +521,6 @@ addCSS('https://code.jquery.com/ui/1.12.1/themes/cupertino/jquery-ui.css');
       }
     }
 
-    function copyPasswordToClipboard(passwordValue) {
-      if (typeof passwordValue !== 'undefined' && passwordValue.length) {
-        if (alertPasswordTimeout != null) {
-          clearTimeout(alertPasswordTimeout);
-        }
-
-        if (clearPasswordTimeout != null) {
-          clearTimeout(clearPasswordTimeout);
-        }
-
-        try {
-          navigator.clipboard.writeText(passwordValue);
-          alertPasswordTimeout = setTimeout(alertPassword, 300);
-        } catch (ex) {
-          ;
-        }
-      }
-    }
-
-    function alertPassword() {
-      if (alertPasswordTimeout != null) {
-        clearTimeout(alertPasswordTimeout);
-      }
-
-      alert("Password copied, click OK to clear and continue...");
-
-      clearPasswordTimeout = setTimeout(clearPassword, 1000);
-    }
-
-    function clearPassword() {
-      try {
-        navigator.clipboard.writeText("");
-      } catch (ex) {
-        ;
-      }
-    }
   </script>
 <?php
 }
