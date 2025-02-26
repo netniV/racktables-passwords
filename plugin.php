@@ -10,7 +10,7 @@ function plugin_passwords_info() {
     'name'     => "passwords",
     'longname' => "Passwords Tab",
     'version'  => "0.2",
-    'home_url' => ''
+    'home_url' => 'https://github.com/netniV/racktables-passwords',
   );
 }
 
